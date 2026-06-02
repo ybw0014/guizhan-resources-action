@@ -1,0 +1,67 @@
+name: Guizhan Resources Upload
+description: Upload built artifacts to Guizhan Resources.
+author: ybw0014
+
+inputs:
+  domain:
+    description: Guizhan Resources API domain.
+    required: false
+    default: https://resources.guizhanss.com/api
+  token:
+    description: API token with project:version:create scope.
+    required: true
+  project-id:
+    description: Project ID or slug.
+    required: true
+  channel:
+    description: Release channel ID or slug.
+    required: true
+  files:
+    description: Local artifact paths or glob patterns.
+    required: false
+  artifact-names:
+    description: GitHub Actions artifact names from the current workflow run.
+    required: false
+  primary-file:
+    description: Artifact basename to upload first.
+    required: false
+  version:
+    description: Version string. Defaults to the current ref name when omitted.
+    required: false
+  name:
+    description: Display name. Defaults to the resolved version when omitted.
+    required: false
+  changelog:
+    description: Version changelog.
+    required: false
+  minecraft-versions:
+    description: Comma or newline separated Minecraft versions.
+    required: false
+  platforms:
+    description: Comma or newline separated platform IDs.
+    required: false
+  dependencies:
+    description: JSON dependencies payload accepted by the Guizhan Resources API.
+    required: false
+  auto-detect-minecraft:
+    description: Whether to infer Minecraft versions when explicit input is omitted.
+    required: false
+    default: "true"
+  auto-detect-platform:
+    description: Whether to infer platforms when explicit input is omitted.
+    required: false
+    default: "true"
+
+outputs:
+  version-id:
+    description: Created version ID.
+  version-url:
+    description: URL for the created version.
+  uploaded-files:
+    description: Comma-separated uploaded file order.
+  api-code:
+    description: API response code.
+
+runs:
+  using: node20
+  main: dist/index.js
