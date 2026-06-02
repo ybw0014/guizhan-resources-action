@@ -1,0 +1,146 @@
+import { DefaultArtifactClient } from "@actions/artifact"
+import * as glob from "@actions/glob"
+import { mkdtemp, readdir, stat } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import path from "node:path"
+
+import { ActionInputs } from "./inputs"
+
+const allowedExtensions = new Set([".jar", ".zip"])
+const fileNameRegex = /^[a-zA-Z0-9](?:[a-zA-Z0-9\s_\-()]|\.(?!\.))*[a-zA-Z0-9)]\.[a-zA-Z0-9]+$/
+
+export type ResolvedUploadFile = {
+	path: string
+	basename: string
+}
+
+type ArtifactClient = Pick<DefaultArtifactClient, "listArtifacts" | "downloadArtifact">
+
+export async function collectFiles(inputs: ActionInputs, artifactClient: ArtifactClient = new DefaultArtifactClient()) {
+	const localFiles = await resolveLocalFiles(inputs.files)
+	const artifactFiles = await resolveArtifactFiles(inputs.artifactNames, artifactClient)
+	return finalizeFiles([...localFiles, ...artifactFiles], inputs.primaryFile)
+}
+
+async function resolveLocalFiles(patterns: string[]) {
+	const files: string[] = []
+
+	for (const pattern of patterns) {
+		const globber = await glob.create(pattern, { followSymbolicLinks: true })
+		const matches = await globber.glob()
+
+		if (!matches.length) {
+			throw new Error(`File pattern "${pattern}" did not match any files.`)
+		}
+
+		files.push(...matches)
+	}
+
+	return resolveCandidateFiles(files)
+}
+
+async function resolveArtifactFiles(artifactNames: string[], artifactClient: ArtifactClient) {
+	if (!artifactNames.length) {
+		return []
+	}
+
+	const { artifacts } = await artifactClient.listArtifacts({ latest: true })
+	const files: string[] = []
+
+	for (const artifactName of artifactNames) {
+		const artifact = artifacts.find((item) => item.name === artifactName)
+		if (!artifact) {
+			throw new Error(`Artifact "${artifactName}" was not found in the current workflow run.`)
+		}
+
+		const downloadPath = await mkdtemp(path.join(tmpdir(), `guizhan-resources-${safeTempName(artifactName)}-`))
+		await artifactClient.downloadArtifact(artifact.id, { path: downloadPath })
+		files.push(...(await collectFilesRecursively(downloadPath)))
+	}
+
+	return resolveCandidateFiles(files)
+}
+
+async function collectFilesRecursively(directory: string): Promise<string[]> {
+	const entries = await readdir(directory, { withFileTypes: true })
+	const files: string[] = []
+
+	for (const entry of entries) {
+		const entryPath = path.join(directory, entry.name)
+		if (entry.isDirectory()) {
+			files.push(...(await collectFilesRecursively(entryPath)))
+		} else if (entry.isFile()) {
+			files.push(entryPath)
+		}
+	}
+
+	return files
+}
+
+async function resolveCandidateFiles(paths: string[]) {
+	const files: ResolvedUploadFile[] = []
+
+	for (const filePath of paths) {
+		const absolutePath = path.resolve(filePath)
+		const fileStat = await stat(absolutePath)
+
+		if (fileStat.isDirectory()) {
+			throw new Error(`Resolved path "${absolutePath}" is a directory. Only files can be uploaded.`)
+		}
+
+		if (!fileStat.isFile()) {
+			throw new Error(`Resolved path "${absolutePath}" is not a regular file.`)
+		}
+
+		const basename = path.basename(absolutePath)
+		validateBasename(basename, absolutePath)
+		files.push({ path: absolutePath, basename })
+	}
+
+	return files
+}
+
+function finalizeFiles(files: ResolvedUploadFile[], primaryFile: string | undefined) {
+	const seenBasenames = new Map<string, string>()
+
+	for (const file of files) {
+		const existingPath = seenBasenames.get(file.basename)
+		if (existingPath) {
+			throw new Error(`Duplicate upload basename "${file.basename}" from "${existingPath}" and "${file.path}".`)
+		}
+
+		seenBasenames.set(file.basename, file.path)
+	}
+
+	const sorted = [...files].sort((left, right) => {
+		const basenameCompare = left.basename.localeCompare(right.basename)
+		return basenameCompare || left.path.localeCompare(right.path)
+	})
+
+	if (!primaryFile) {
+		return sorted
+	}
+
+	const primaryIndex = sorted.findIndex((file) => file.basename === primaryFile)
+	if (primaryIndex === -1) {
+		throw new Error(`Primary file "${primaryFile}" was not found in resolved upload files.`)
+	}
+
+	const [primary] = sorted.splice(primaryIndex, 1)
+	return [primary, ...sorted]
+}
+
+function validateBasename(basename: string, absolutePath: string) {
+	if (!fileNameRegex.test(basename)) {
+		throw new Error(`Resolved file "${absolutePath}" has unsafe basename "${basename}".`)
+	}
+
+	const extension = path.extname(basename).toLowerCase()
+	if (!allowedExtensions.has(extension)) {
+		throw new Error(`Resolved file "${absolutePath}" has unsupported extension "${extension}".`)
+	}
+}
+
+function safeTempName(value: string) {
+	return value.replace(/[^a-zA-Z0-9_-]/g, "-")
+}
