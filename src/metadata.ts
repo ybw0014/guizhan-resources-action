@@ -87,7 +87,7 @@ function validateProjectVersionData(data: CreateProjectVersionData) {
 	validateString(data.name, "name", 1, 64, visibleCharsRegex)
 
 	if (data.changelog !== undefined) {
-		validateString(data.changelog, "changelog", 0, 1000)
+		validateString(data.changelog, "changelog", 0, 10000)
 	}
 
 	if (data.minecraft_versions) {
