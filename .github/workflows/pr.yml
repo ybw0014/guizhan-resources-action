@@ -10,32 +10,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 20
-          cache: pnpm
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Prepare pnpm
-        run: corepack prepare pnpm@10.33.0 --activate
+          cache: bun
+          cache-dependency-path: '**/bun.lock'
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun ci
 
       - name: Lint
-        run: pnpm lint
+        run: bun run lint
 
       - name: Type check
-        run: pnpm type-check
+        run: bun run type-check
 
       - name: Test
-        run: pnpm test
+        run: bun run test
 
       - name: Package
-        run: pnpm package
+        run: bun run package
 
       - name: Actionlint
-        run: pnpm actionlint
+        run: bun run actionlint
