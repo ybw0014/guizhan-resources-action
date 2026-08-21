@@ -4,7 +4,7 @@ import path from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { detectMinecraftVersions, detectPlatforms } from "../src/detect"
+import { detectFileMetadata, detectMinecraftVersions, detectPlatforms } from "../src/detect"
 
 let tempDir: string
 
@@ -22,10 +22,11 @@ describe("detectMinecraftVersions", () => {
 			{ basename: "Plugin-1.20.4-paper.jar" },
 			{ basename: "Plugin-1.20.4-docs.zip" },
 			{ basename: "Legacy_1.7.10.jar" },
-			{ basename: "Unsupported-1.6.4.jar" },
+			{ basename: "Legacy-1.6.4.jar" },
+			{ basename: "Future-1.30.jar" },
 		])
 
-		expect(versions).toEqual(["1.20.4", "1.7.10"])
+		expect(versions).toEqual(["1.20.4", "1.7.10", "1.6.4", "1.30"])
 	})
 
 	it("returns an empty array when no Minecraft versions are detected", () => {
@@ -54,15 +55,45 @@ describe("detectPlatforms", () => {
 
 		await expect(detectPlatforms([{ basename: "Plugin.jar", path: jarPath }])).resolves.toEqual([])
 	})
+
+	it("detects descriptors from a >128KiB archive tail window", async () => {
+		const jarPath = await writeJar("LargePlugin.jar", ["paper-plugin.yml"], 129 * 1024)
+
+		await expect(detectPlatforms([{ basename: "LargePlugin.jar", path: jarPath }])).resolves.toEqual(["paper"])
+	})
+
+	it("falls back to the full archive when the central directory starts before the tail window", async () => {
+		const entries = [
+			"paper-plugin.yml",
+			...Array.from({ length: 1000 }, (_, index) => `entries/${String(index).padStart(4, "0")}-${"x".repeat(100)}.txt`),
+		]
+		const jarPath = await writeJar("FallbackPlugin.jar", entries)
+
+		await expect(detectPlatforms([{ basename: "FallbackPlugin.jar", path: jarPath }])).resolves.toEqual(["paper"])
+	})
+
+	it("treats an incomplete central directory as unparseable", async () => {
+		const jarPath = await writeJar("TruncatedPlugin.jar", ["paper-plugin.yml"])
+		const archive = await fs.readFile(jarPath)
+		archive.writeUInt16LE(2, archive.length - 14)
+		archive.writeUInt16LE(2, archive.length - 12)
+		await fs.writeFile(jarPath, archive)
+
+		await expect(detectFileMetadata({ basename: "TruncatedPlugin.jar", path: jarPath })).resolves.toEqual({
+			isUsable: false,
+			minecraftVersions: [],
+			platforms: [],
+		})
+	})
 })
 
-async function writeJar(fileName: string, entries: string[]) {
+async function writeJar(fileName: string, entries: string[], prefixSize = 0) {
 	const filePath = path.join(tempDir, fileName)
-	await fs.writeFile(filePath, createZip(entries))
+	await fs.writeFile(filePath, createZip(entries, prefixSize))
 	return filePath
 }
 
-function createZip(entries: string[]) {
+function createZip(entries: string[], prefixSize = 0) {
 	const localHeaders: Buffer[] = []
 	const centralHeaders: Buffer[] = []
 	let localOffset = 0
@@ -81,7 +112,7 @@ function createZip(entries: string[]) {
 		centralHeader.writeUInt16LE(20, 4)
 		centralHeader.writeUInt16LE(20, 6)
 		centralHeader.writeUInt16LE(name.length, 28)
-		centralHeader.writeUInt32LE(localOffset, 42)
+		centralHeader.writeUInt32LE(prefixSize + localOffset, 42)
 		name.copy(centralHeader, 46)
 		centralHeaders.push(centralHeader)
 
@@ -94,7 +125,7 @@ function createZip(entries: string[]) {
 	endOfCentralDirectory.writeUInt16LE(entries.length, 8)
 	endOfCentralDirectory.writeUInt16LE(entries.length, 10)
 	endOfCentralDirectory.writeUInt32LE(centralDirectory.length, 12)
-	endOfCentralDirectory.writeUInt32LE(localOffset, 16)
+	endOfCentralDirectory.writeUInt32LE(prefixSize + localOffset, 16)
 
-	return Buffer.concat([...localHeaders, centralDirectory, endOfCentralDirectory])
+	return Buffer.concat([Buffer.alloc(prefixSize), ...localHeaders, centralDirectory, endOfCentralDirectory])
 }

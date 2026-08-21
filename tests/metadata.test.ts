@@ -11,6 +11,8 @@ import { buildProjectVersionData, ResolvedUploadFile } from "../src/metadata"
 vi.mock("@actions/core", () => ({
 	getInput: vi.fn(),
 	setSecret: vi.fn(),
+	warning: vi.fn(),
+	notice: vi.fn(),
 }))
 
 const mockedCore = vi.mocked(core)
@@ -32,7 +34,7 @@ afterEach(async () => {
 describe("buildProjectVersionData", () => {
 	it("uses explicit Minecraft versions and platforms over auto-detection", async () => {
 		const files = await createResolvedFiles(["Plugin-1.20.4-paper.jar"])
-		const data = await buildProjectVersionData(
+		const { data } = await buildProjectVersionData(
 			createInputs({ minecraftVersions: ["1.21.1"], platforms: ["folia"] }),
 			files,
 		)
@@ -44,9 +46,10 @@ describe("buildProjectVersionData", () => {
 	it("builds API data with detected metadata and final file order", async () => {
 		const files = await createResolvedFiles(["Plugin-1.20.4-paper.jar", "Docs.zip"], {
 			"Plugin-1.20.4-paper.jar": ["paper-plugin.yml"],
+			"Docs.zip": [],
 		})
 
-		const data = await buildProjectVersionData(createInputs({ changelog: "Release notes" }), files)
+		const { data } = await buildProjectVersionData(createInputs({ changelog: "Release notes", failMode: "warn" }), files)
 
 		expect(data).toEqual({
 			channel: "stable",
@@ -60,9 +63,9 @@ describe("buildProjectVersionData", () => {
 	})
 
 	it("omits optional detected fields when detection finds nothing", async () => {
-		const files = await createResolvedFiles(["Plugin.jar"])
+		const files = await createResolvedFiles(["Plugin.jar"], { "Plugin.jar": [] })
 
-		const data = await buildProjectVersionData(createInputs(), files)
+		const { data } = await buildProjectVersionData(createInputs({ failMode: "warn" }), files)
 
 		expect(data).toEqual({
 			channel: "stable",
@@ -79,7 +82,7 @@ describe("buildProjectVersionData", () => {
 			"Plugin-1.20.4-paper.jar": ["paper-plugin.yml"],
 		})
 
-		const data = await buildProjectVersionData(
+		const { data } = await buildProjectVersionData(
 			createInputs({ autoDetectMinecraft: false, autoDetectPlatform: false }),
 			files,
 		)
@@ -89,37 +92,92 @@ describe("buildProjectVersionData", () => {
 	})
 
 	it("rejects unsupported explicit platform inputs", async () => {
-		const files = await createResolvedFiles(["Plugin.jar"])
+		const files = await createResolvedFiles(["Plugin.jar"], { "Plugin.jar": [] })
 
-		await expect(buildProjectVersionData(createInputs({ platforms: ["velocity"] }), files)).rejects.toThrow(
+		await expect(
+			buildProjectVersionData(createInputs({ autoDetectMinecraft: false, platforms: ["velocity"] }), files),
+		).rejects.toThrow(
 			'Unsupported platform "velocity".',
 		)
 	})
 
 	it("includes dependencies when present", async () => {
-		const files = await createResolvedFiles(["Plugin.jar"])
-		const dependencies = [{ type: "required", version_id: "version-123" }]
+		const files = await createResolvedFiles(["Plugin.jar"], { "Plugin.jar": [] })
+		const dependencies = [{ type: "required", version_id: "abcd1234" }]
 
-		const data = await buildProjectVersionData(createInputs({ dependencies }), files)
+		const { data } = await buildProjectVersionData(
+			createInputs({ autoDetectMinecraft: false, autoDetectPlatform: false, dependencies }),
+			files,
+		)
 
 		expect(data.dependencies).toEqual(dependencies)
 	})
 
 	it("detects Minecraft versions from filenames", async () => {
-		const files = await createResolvedFiles(["Plugin-1.21.4.jar", "Plugin-1.20.1.zip"])
+		const files = await createResolvedFiles(["Plugin-1.21.4.jar", "Plugin-1.20.1.zip"], {
+			"Plugin-1.21.4.jar": [],
+			"Plugin-1.20.1.zip": [],
+		})
 
-		const data = await buildProjectVersionData(createInputs({ autoDetectPlatform: false }), files)
+		const { data } = await buildProjectVersionData(createInputs({ autoDetectPlatform: false }), files)
 
 		expect(data.minecraft_versions).toEqual(["1.21.4", "1.20.1"])
+	})
+
+	it("detects year-based Minecraft versions from filenames", async () => {
+		const files = await createResolvedFiles(["Plugin-26.1-fabric.jar", "Addon-27.10.2.zip"], {
+			"Plugin-26.1-fabric.jar": [],
+			"Addon-27.10.2.zip": [],
+		})
+
+		const { data } = await buildProjectVersionData(createInputs({ autoDetectPlatform: false }), files)
+
+		expect(data.minecraft_versions).toEqual(["26.1", "27.10.2"])
+	})
+
+	it("fails by default when a file cannot be parsed or has no detected metadata", async () => {
+		const files = await createResolvedFiles(["Empty.jar"], { "Empty.jar": [] })
+
+		await expect(buildProjectVersionData(createInputs(), files)).rejects.toThrow(
+			'Unable to detect metadata for "Empty.jar".',
+		)
+	})
+
+	it("warns and keeps the file when fail-mode is warn", async () => {
+		const files = await createResolvedFiles(["Empty.jar", "Plugin-1.20.4-paper.jar"], {
+			"Empty.jar": [],
+			"Plugin-1.20.4-paper.jar": [],
+		})
+
+		const { data, files: usableFiles } = await buildProjectVersionData(createInputs({ failMode: "warn" }), files)
+
+		expect(usableFiles.map((file) => file.basename)).toEqual(["Empty.jar", "Plugin-1.20.4-paper.jar"])
+		expect(data.files).toEqual(["Empty.jar", "Plugin-1.20.4-paper.jar"])
+		expect(mockedCore.warning).toHaveBeenCalledWith(
+			expect.stringContaining('Unable to detect metadata for "Empty.jar"'),
+		)
+	})
+
+	it("excludes unusable files when fail-mode is skip", async () => {
+		const files = await createResolvedFiles(["Empty.jar", "Plugin-1.20.4-paper.jar"], {
+			"Empty.jar": [],
+			"Plugin-1.20.4-paper.jar": [],
+		})
+
+		const { data, files: usableFiles } = await buildProjectVersionData(createInputs({ failMode: "skip" }), files)
+
+		expect(usableFiles.map((file) => file.basename)).toEqual(["Plugin-1.20.4-paper.jar"])
+		expect(data.files).toEqual(["Plugin-1.20.4-paper.jar"])
+		expect(data.minecraft_versions).toEqual(["1.20.4"])
 	})
 })
 
 describe("metadata input dependencies", () => {
-	it("rejects invalid dependencies JSON before metadata assembly", () => {
+	it("rejects invalid dependencies JSON before metadata assembly", async () => {
 		setValidInputMap({ dependencies: "not-json" })
 		vi.stubEnv("GITHUB_REF_NAME", "v1.0.0")
 
-		expect(() => parseInputs()).toThrow('Input "dependencies" must be valid JSON.')
+		await expect(parseInputs()).rejects.toThrow('Input "dependencies" must be valid JSON.')
 	})
 })
 
@@ -135,6 +193,9 @@ function createInputs(overrides: Partial<ActionInputs> = {}): ActionInputs {
 		name: "1.0.0",
 		autoDetectMinecraft: true,
 		autoDetectPlatform: true,
+		retryAttempts: 2,
+		retryDelayMs: 0,
+		failMode: "fail",
 		...overrides,
 	}
 }
@@ -161,7 +222,7 @@ function setValidInputMap(overrides: Record<string, string | undefined> = {}) {
 			({
 				domain: "resources.guizhanss.com",
 				token: "ghs_test_token",
-				"project-id": "project-123",
+				"project": "project-123",
 				channel: "stable",
 				files: "Plugin.jar",
 				"artifact-names": "",

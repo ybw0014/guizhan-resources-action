@@ -38,6 +38,27 @@ describe("collectFiles", () => {
 		])
 	})
 
+	it("filters unrelated sidecar files from glob matches", async () => {
+		const pluginPath = await createFile("dist/plugin.jar")
+		await createFile("dist/notes.md")
+		await createFile("dist/plugin.jar.sha1")
+		await createFile("dist/checksums.json")
+
+		const result = await collectFiles(createInputs({ files: [path.join(testDirectory, "dist", "*")] }))
+
+		expect(result).toEqual([{ path: pluginPath, basename: "plugin.jar" }])
+	})
+
+	it("uploads a file matched by literal path and glob only once", async () => {
+		const pluginPath = await createFile("dist/plugin.jar")
+
+		const result = await collectFiles(
+			createInputs({ files: [pluginPath, path.join(testDirectory, "dist", "*.jar")] }),
+		)
+
+		expect(result).toEqual([{ path: pluginPath, basename: "plugin.jar" }])
+	})
+
 	it("fails when a glob pattern has no matches", async () => {
 		await expect(collectFiles(createInputs({ files: [path.join(testDirectory, "missing", "*.jar")] }))).rejects.toThrow(
 			"did not match any files",
@@ -128,6 +149,9 @@ function createInputs(overrides: Partial<ActionInputs> = {}): ActionInputs {
 		name: "1.0.0",
 		autoDetectMinecraft: true,
 		autoDetectPlatform: true,
+		retryAttempts: 2,
+		retryDelayMs: 0,
+		failMode: "fail",
 		...overrides,
 	}
 }

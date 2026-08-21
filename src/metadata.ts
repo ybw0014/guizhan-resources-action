@@ -1,9 +1,12 @@
-import { detectMinecraftVersions, detectPlatforms, isSupportedPlatform, Platform } from "./detect"
+import * as core from "@actions/core"
+
+import { detectFileMetadata, isSupportedPlatform, Platform } from "./detect"
 import { ActionInputs } from "./inputs"
 
 export type ResolvedUploadFile = {
 	basename: string
 	path: string
+	metadata?: DetectedFileMetadata
 }
 
 export type CreateProjectVersionData = {
@@ -24,27 +27,30 @@ const minecraftVersionRegex = /^(?:1\.\d+(?:\.\d+)?|(?:2[6-9]|[3-9]\d)\.[1-9]\d*
 const fileNameRegex = /^[a-zA-Z0-9](?:[a-zA-Z0-9\s_\-()]|\.(?!\.))*[a-zA-Z0-9)]\.[a-zA-Z0-9]+$/
 const maxPlatforms = 10
 
+type DetectedFileMetadata = Awaited<ReturnType<typeof detectFileMetadata>>
+
 export async function buildProjectVersionData(
 	inputs: ActionInputs,
 	files: ResolvedUploadFile[],
-): Promise<CreateProjectVersionData> {
+): Promise<{ data: CreateProjectVersionData; files: ResolvedUploadFile[] }> {
+	const usableFiles = await resolveUsableFiles(inputs, files)
 	const data: CreateProjectVersionData = {
 		channel: inputs.channel,
 		version: inputs.version,
 		name: inputs.name,
-		files: files.map((file) => file.basename),
+		files: usableFiles.map((file) => file.basename),
 	}
 
 	if (inputs.changelog) {
 		data.changelog = inputs.changelog
 	}
 
-	const minecraftVersions = resolveMinecraftVersions(inputs, files)
+	const minecraftVersions = resolveMinecraftVersions(inputs, usableFiles)
 	if (minecraftVersions.length) {
 		data.minecraft_versions = minecraftVersions
 	}
 
-	const platforms = await resolvePlatforms(inputs, files)
+	const platforms = resolvePlatforms(inputs, usableFiles)
 	if (platforms.length) {
 		data.platforms = platforms
 	}
@@ -54,7 +60,36 @@ export async function buildProjectVersionData(
 	}
 
 	validateProjectVersionData(data)
-	return data
+	return { data, files: usableFiles }
+}
+
+async function resolveUsableFiles(inputs: ActionInputs, files: ResolvedUploadFile[]) {
+	const needsDetection =
+		(inputs.autoDetectMinecraft && !inputs.minecraftVersions?.length) ||
+		(inputs.autoDetectPlatform && !inputs.platforms?.length)
+	if (!needsDetection) {
+		return files
+	}
+
+	const usableFiles: ResolvedUploadFile[] = []
+	for (const file of files) {
+		const metadata = await detectFileMetadata(file)
+		const hasDetectedMetadata = metadata.minecraftVersions.length > 0 || metadata.platforms.length > 0
+		if (metadata.isUsable && hasDetectedMetadata) {
+			usableFiles.push({ ...file, metadata })
+			continue
+		}
+
+		if (inputs.failMode === "fail") {
+			throw new Error(`Unable to detect metadata for "${file.basename}".`)
+		}
+		if (inputs.failMode === "warn") {
+			core.warning(`Unable to detect metadata for "${file.basename}"; uploading without detected metadata from this file.`)
+			usableFiles.push({ ...file, metadata })
+		}
+	}
+
+	return usableFiles
 }
 
 function resolveMinecraftVersions(inputs: ActionInputs, files: ResolvedUploadFile[]) {
@@ -66,10 +101,10 @@ function resolveMinecraftVersions(inputs: ActionInputs, files: ResolvedUploadFil
 		return []
 	}
 
-	return detectMinecraftVersions(files)
+	return files.flatMap((file) => file.metadata?.minecraftVersions ?? [])
 }
 
-async function resolvePlatforms(inputs: ActionInputs, files: ResolvedUploadFile[]) {
+function resolvePlatforms(inputs: ActionInputs, files: ResolvedUploadFile[]) {
 	if (inputs.platforms?.length) {
 		return validatePlatforms(dedupe(inputs.platforms))
 	}
@@ -78,11 +113,11 @@ async function resolvePlatforms(inputs: ActionInputs, files: ResolvedUploadFile[
 		return []
 	}
 
-	return detectPlatforms(files)
+	return files.flatMap((file) => file.metadata?.platforms ?? [])
 }
 
 function validateProjectVersionData(data: CreateProjectVersionData) {
-	validateString(data.channel, "channel", 1, 32, slugRegex)
+	validateString(data.channel, "channel", 1, 38, slugRegex)
 	validateString(data.version, "version", 1, 32, urlSafeRegex)
 	validateString(data.name, "name", 1, 64, visibleCharsRegex)
 

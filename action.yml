@@ -10,7 +10,7 @@ inputs:
   token:
     description: API token with project:version:create scope.
     required: true
-  project-id:
+  project:
     description: Project ID or slug.
     required: true
   channel:
@@ -34,6 +34,9 @@ inputs:
   changelog:
     description: Version changelog.
     required: false
+  changelog-file:
+    description: Path to a UTF-8 file containing the version changelog. Leading and trailing whitespace is trimmed. Mutually exclusive with changelog.
+    required: false
   minecraft-versions:
     description: Comma or newline separated Minecraft versions.
     required: false
@@ -51,6 +54,18 @@ inputs:
     description: Whether to infer platforms when explicit input is omitted.
     required: false
     default: "true"
+  retry-attempts:
+    description: Total number of upload attempts (including the first) for transient failures (network errors and HTTP 5xx).
+    required: false
+    default: "2"
+  retry-delay:
+    description: Base delay in milliseconds between retries (scaled by attempt number).
+    required: false
+    default: "1000"
+  fail-mode:
+    description: Behavior when a matched file cannot be parsed or yields no detected metadata. fail = error, warn = upload without detected metadata, skip = exclude the file.
+    required: false
+    default: "fail"
 
 outputs:
   version-id:
@@ -60,8 +75,8 @@ outputs:
   uploaded-files:
     description: Comma-separated uploaded file order.
   api-code:
-    description: API response code.
+    description: Normalized result code. 0 means success, including a verified idempotent replay of an earlier attempt; otherwise the API error code.
 
 runs:
-  using: node20
+  using: node24
   main: dist/index.js

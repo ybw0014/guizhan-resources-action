@@ -1,4 +1,5 @@
 import * as core from "@actions/core"
+import { readFile } from "node:fs/promises"
 
 const defaultApiBaseUrl = "https://resources.guizhanss.com/api"
 const urlSafeRegex = /^[a-zA-Z0-9!@$()`.+,_"-]*$/
@@ -14,19 +15,25 @@ export type ActionInputs = {
 	version: string
 	name: string
 	changelog?: string
+	changelogFile?: string
 	minecraftVersions?: string[]
 	platforms?: string[]
 	dependencies?: unknown[]
 	autoDetectMinecraft: boolean
 	autoDetectPlatform: boolean
+	retryAttempts: number
+	retryDelayMs: number
+	failMode: FailMode
 }
 
-export function parseInputs(): ActionInputs {
+export type FailMode = "fail" | "warn" | "skip"
+
+export async function parseInputs(): Promise<ActionInputs> {
 	const token = readRequiredInput("token")
 	core.setSecret(token)
 
 	const apiBaseUrl = normalizeApiBaseUrl(readOptionalInput("domain") ?? defaultApiBaseUrl)
-	const projectId = readRequiredInput("project-id")
+	const projectId = readRequiredInput("project")
 	const channel = readRequiredInput("channel")
 	const files = parseListInput(readOptionalInput("files"))
 	const artifactNames = parseListInput(readOptionalInput("artifact-names"))
@@ -42,12 +49,19 @@ export function parseInputs(): ActionInputs {
 	}
 
 	const changelog = readOptionalInput("changelog")
+	const changelogFile = readOptionalInput("changelog-file")
+	if (changelog && changelogFile) {
+		throw new Error('Only one of "changelog" or "changelog-file" may be set.')
+	}
 	const minecraftVersions = parseListInput(readOptionalInput("minecraft-versions"))
 	const platforms = parseListInput(readOptionalInput("platforms"))
 	const dependencies = parseDependencies(readOptionalInput("dependencies"))
 	const primaryFile = readOptionalInput("primary-file")
 	const autoDetectMinecraft = parseBooleanInput("auto-detect-minecraft", true)
 	const autoDetectPlatform = parseBooleanInput("auto-detect-platform", true)
+	const retryAttempts = parseIntegerInput("retry-attempts", 2, 1)
+	const retryDelayMs = parseIntegerInput("retry-delay", 1000, 0)
+	const failMode = parseFailMode(readOptionalInput("fail-mode"))
 
 	const inputs: ActionInputs = {
 		apiBaseUrl,
@@ -60,13 +74,19 @@ export function parseInputs(): ActionInputs {
 		name,
 		autoDetectMinecraft,
 		autoDetectPlatform,
+		retryAttempts,
+		retryDelayMs,
+		failMode,
 	}
 
 	if (primaryFile) {
 		inputs.primaryFile = primaryFile
 	}
 
-	if (changelog) {
+	if (changelogFile) {
+		inputs.changelogFile = changelogFile
+		inputs.changelog = await readChangelogFile(changelogFile)
+	} else if (changelog) {
 		inputs.changelog = changelog
 	}
 
@@ -144,6 +164,41 @@ function parseDependencies(value: string | undefined): unknown[] | undefined {
 	}
 
 	return parsed
+}
+
+function parseIntegerInput(name: string, defaultValue: number, min: number): number {
+	const value = readOptionalInput(name)
+	if (!value) {
+		return defaultValue
+	}
+
+	const parsed = Number(value)
+	if (!Number.isInteger(parsed) || parsed < min) {
+		throw new Error(`Input "${name}" must be an integer >= ${min}.`)
+	}
+
+	return parsed
+}
+
+function parseFailMode(value: string | undefined): FailMode {
+	if (!value) {
+		return "fail"
+	}
+
+	if (value === "fail" || value === "warn" || value === "skip") {
+		return value
+	}
+
+	throw new Error('Input "fail-mode" must be "fail", "warn", or "skip".')
+}
+
+async function readChangelogFile(filePath: string): Promise<string> {
+	try {
+		return (await readFile(filePath, "utf8")).trim()
+	} catch (error) {
+		const message = error instanceof Error ? error.message : "Unexpected file read failure"
+		throw new Error(`Unable to read changelog file "${filePath}": ${message}`, { cause: error })
+	}
 }
 
 function parseBooleanInput(name: string, defaultValue: boolean): boolean {

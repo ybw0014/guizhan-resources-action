@@ -7,6 +7,11 @@ import path from "node:path"
 import { ActionInputs } from "./inputs"
 
 const allowedExtensions = new Set([".jar", ".zip"])
+// Non-artifact sidecar files commonly found in build directories and
+// downloaded artifacts. Only filtered from glob/artifact expansion;
+// literal file paths are still validated strictly.
+const unrelatedExtensions = new Set([".sha1", ".sha256", ".md5", ".md", ".txt", ".json"])
+const globMagicRegex = /[*?[\]!{}]/
 const fileNameRegex = /^[a-zA-Z0-9](?:[a-zA-Z0-9\s_\-()]|\.(?!\.))*[a-zA-Z0-9)]\.[a-zA-Z0-9]+$/
 
 export type ResolvedUploadFile = {
@@ -19,11 +24,27 @@ type ArtifactClient = Pick<DefaultArtifactClient, "listArtifacts" | "downloadArt
 export async function collectFiles(inputs: ActionInputs, artifactClient: ArtifactClient = new DefaultArtifactClient()) {
 	const localFiles = await resolveLocalFiles(inputs.files)
 	const artifactFiles = await resolveArtifactFiles(inputs.artifactNames, artifactClient)
-	return finalizeFiles([...localFiles, ...artifactFiles], inputs.primaryFile)
+	return finalizeFiles(dedupeFiles([...localFiles, ...artifactFiles]), inputs.primaryFile)
 }
 
-async function resolveLocalFiles(patterns: string[]) {
-	const files: string[] = []
+function dedupeFiles(files: ResolvedUploadFile[]): ResolvedUploadFile[] {
+	const seenPaths = new Set<string>()
+	return files.filter((file) => {
+		if (seenPaths.has(file.path)) {
+			return false
+		}
+		seenPaths.add(file.path)
+		return true
+	})
+}
+
+type ResolvedCandidate = {
+	path: string
+	isLiteral: boolean
+}
+
+async function resolveLocalFiles(patterns: string[]): Promise<ResolvedUploadFile[]> {
+	const candidates: ResolvedCandidate[] = []
 
 	for (const pattern of patterns) {
 		const globber = await glob.create(pattern, { followSymbolicLinks: true })
@@ -33,19 +54,20 @@ async function resolveLocalFiles(patterns: string[]) {
 			throw new Error(`File pattern "${pattern}" did not match any files.`)
 		}
 
-		files.push(...matches)
+		const isLiteral = !globMagicRegex.test(pattern)
+		candidates.push(...matches.map((filePath) => ({ path: filePath, isLiteral })))
 	}
 
-	return resolveCandidateFiles(files)
+	return resolveCandidateFiles(candidates)
 }
 
-async function resolveArtifactFiles(artifactNames: string[], artifactClient: ArtifactClient) {
+async function resolveArtifactFiles(artifactNames: string[], artifactClient: ArtifactClient): Promise<ResolvedUploadFile[]> {
 	if (!artifactNames.length) {
 		return []
 	}
 
 	const { artifacts } = await artifactClient.listArtifacts({ latest: true })
-	const files: string[] = []
+	const candidates: ResolvedCandidate[] = []
 
 	for (const artifactName of artifactNames) {
 		const artifact = artifacts.find((item) => item.name === artifactName)
@@ -55,10 +77,10 @@ async function resolveArtifactFiles(artifactNames: string[], artifactClient: Art
 
 		const downloadPath = await mkdtemp(path.join(tmpdir(), `guizhan-resources-${safeTempName(artifactName)}-`))
 		await artifactClient.downloadArtifact(artifact.id, { path: downloadPath })
-		files.push(...(await collectFilesRecursively(downloadPath)))
+		candidates.push(...(await collectFilesRecursively(downloadPath)).map((filePath) => ({ path: filePath, isLiteral: false })))
 	}
 
-	return resolveCandidateFiles(files)
+	return resolveCandidateFiles(candidates)
 }
 
 async function collectFilesRecursively(directory: string): Promise<string[]> {
@@ -77,11 +99,11 @@ async function collectFilesRecursively(directory: string): Promise<string[]> {
 	return files
 }
 
-async function resolveCandidateFiles(paths: string[]) {
+async function resolveCandidateFiles(candidates: ResolvedCandidate[]) {
 	const files: ResolvedUploadFile[] = []
 
-	for (const filePath of paths) {
-		const absolutePath = path.resolve(filePath)
+	for (const candidate of candidates) {
+		const absolutePath = path.resolve(candidate.path)
 		const fileStat = await stat(absolutePath)
 
 		if (fileStat.isDirectory()) {
@@ -93,6 +115,10 @@ async function resolveCandidateFiles(paths: string[]) {
 		}
 
 		const basename = path.basename(absolutePath)
+		if (!candidate.isLiteral && unrelatedExtensions.has(path.extname(basename).toLowerCase())) {
+			continue
+		}
+
 		validateBasename(basename, absolutePath)
 		files.push({ path: absolutePath, basename })
 	}
