@@ -1,33 +1,33 @@
 {
 	"name": "guizhan-resources-action",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"private": true,
 	"type": "module",
-	"packageManager": "bun@1.2.0",
+	"packageManager": "bun@1.4.0",
 	"scripts": {
 		"lint": "eslint src/**/*.ts tests/**/*.ts *.config.*",
 		"lint:fix": "eslint src/**/*.ts tests/**/*.ts *.config.* --fix",
 		"type-check": "tsc --noEmit",
 		"test": "vitest run",
 		"build": "tsc --noEmit",
-		"package": "ncc build src/index.ts -o dist --source-map --license licenses.txt",
+		"package": "ncc build src/index.ts -o dist --license licenses.txt",
 		"actionlint": "github-actionlint .github/workflows/*.yml"
 	},
 	"dependencies": {
-		"@actions/artifact": "2.3.2",
-		"@actions/core": "1.11.1",
-		"@actions/glob": "0.5.0"
+		"@actions/artifact": "6.2.1",
+		"@actions/core": "3.0.1",
+		"@actions/glob": "0.7.0"
 	},
 	"devDependencies": {
 		"@eslint/js": "10.0.1",
-		"@types/node": "25.5.2",
-		"@vercel/ncc": "0.38.4",
+		"@types/node": "26.2.0",
+		"@vercel/ncc": "0.45.0",
 		"actionlint": "2.0.6",
-		"eslint": "10.2.0",
+		"eslint": "10.9.0",
 		"github-actionlint": "1.7.12",
-		"globals": "17.4.0",
+		"globals": "17.11.0",
 		"typescript": "6.0.2",
-		"typescript-eslint": "8.58.1",
-		"vitest": "4.1.4"
+		"typescript-eslint": "8.67.0",
+		"vitest": "4.1.11"
 	}
 }
