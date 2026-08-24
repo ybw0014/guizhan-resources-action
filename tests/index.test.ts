@@ -10,6 +10,7 @@ import { run } from "../src/index"
 
 vi.mock("@actions/core", () => ({
 	getInput: vi.fn(),
+	info: vi.fn(),
 	setFailed: vi.fn(),
 	setOutput: vi.fn(),
 	setSecret: vi.fn(),

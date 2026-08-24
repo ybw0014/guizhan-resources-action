@@ -21,17 +21,20 @@ const attemptTimeoutMs = 10 * 60 * 1000
 export async function run() {
 	try {
 		const inputs = await parseInputs()
+		core.info(`Project "${inputs.projectId}", channel "${inputs.channel}", version "${inputs.version}"`)
 		const collectedFiles = await collectFiles(inputs)
 		const { data: versionData, files: usableFiles } = await buildProjectVersionData(inputs, collectedFiles)
 		const contents = await readUploadFiles(usableFiles)
+		core.info(
+			`Uploading ${contents.length} file(s): ${contents.map((file) => `${file.basename} (${formatBytes(file.content.byteLength)})`).join(", ")}`,
+		)
 		const result = await createVersionWithRetry(inputs, versionData, contents)
 
+		const versionUrl = `${getSiteRoot(inputs.apiBaseUrl)}/project/${inputs.projectId}/versions/${result.versionId}`
 		core.setOutput("version-id", result.versionId)
-		core.setOutput(
-			"version-url",
-			`${getSiteRoot(inputs.apiBaseUrl)}/project/${inputs.projectId}/versions/${result.versionId}`,
-		)
+		core.setOutput("version-url", versionUrl)
 		core.setOutput("uploaded-files", contents.map((file) => file.basename).join(","))
+		core.notice(`Version "${inputs.version}" created: ${versionUrl}`)
 	} catch (error) {
 		core.setFailed(getErrorMessage(error))
 	}
@@ -328,6 +331,20 @@ function getVersionUrl(apiBaseUrl: string, projectId: string, version: string) {
 
 function isRetryableFailure(error: unknown) {
 	return error instanceof RetryableUploadError
+}
+
+function formatBytes(bytes: number) {
+	if (bytes < 1024) {
+		return `${bytes} B`
+	}
+	const units = ["KiB", "MiB", "GiB"]
+	let value = bytes
+	let unitIndex = -1
+	do {
+		value /= 1024
+		unitIndex += 1
+	} while (value >= 1024 && unitIndex < units.length - 1)
+	return `${value.toFixed(1)} ${units[unitIndex]}`
 }
 
 function sleep(ms: number) {
