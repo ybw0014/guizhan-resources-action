@@ -46,7 +46,7 @@ jobs:
 
       - name: Verify dist is up to date
         run: |
-          git show HEAD:dist/index.js > /tmp/committed-dist.js
+          git show HEAD:dist/index.cjs > /tmp/committed-dist.js
           cat > /tmp/fingerprint.js <<'EOF'
           const crypto = require("node:crypto");
           const fs = require("node:fs");
@@ -57,9 +57,9 @@ jobs:
             return crypto.createHash("sha256").update(parts.join("\n")).digest("hex");
           }
           const committed = fingerprint("/tmp/committed-dist.js");
-          const current = fingerprint("dist/index.js");
+          const current = fingerprint("dist/index.cjs");
           if (committed !== current) {
-            console.error("dist/index.js out of date: committed " + committed + " vs current " + current);
+            console.error("dist/index.cjs out of date: committed " + committed + " vs current " + current);
             process.exit(1);
           }
           console.log("dist fingerprint OK: " + current);

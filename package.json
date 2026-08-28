@@ -5,13 +5,21 @@
 	"type": "module",
 	"packageManager": "bun@1.4.0",
 	"scripts": {
-		"lint": "eslint src/**/*.ts tests/**/*.ts *.config.*",
-		"lint:fix": "eslint src/**/*.ts tests/**/*.ts *.config.* --fix",
+		"lint": "oxlint",
+		"lint:fix": "oxlint --fix",
 		"type-check": "tsc --noEmit",
 		"test": "vitest run",
 		"build": "tsc --noEmit",
-		"package": "ncc build src/index.ts -o dist --license licenses.txt",
+		"package": "tsup src/index.ts --format cjs --target node24 --out-dir dist --no-splitting",
 		"actionlint": "github-actionlint .github/workflows/*.yml"
+	},
+	"tsup": {
+		"noExternal": [
+			"@actions/artifact",
+			"@actions/core",
+			"@actions/glob"
+		],
+		"shims": true
 	},
 	"dependencies": {
 		"@actions/artifact": "6.2.1",
@@ -19,15 +27,12 @@
 		"@actions/glob": "0.7.0"
 	},
 	"devDependencies": {
-		"@eslint/js": "10.0.1",
-		"@types/node": "26.2.0",
-		"@vercel/ncc": "0.45.0",
+		"@types/node": "26.4.0",
 		"actionlint": "2.0.6",
-		"eslint": "10.9.0",
 		"github-actionlint": "1.7.12",
-		"globals": "17.11.0",
-		"typescript": "6.0.2",
-		"typescript-eslint": "8.67.0",
+		"oxlint": "1.80.0",
+		"tsup": "8.5.1",
+		"typescript": "7.0.2",
 		"vitest": "4.1.11"
 	}
 }

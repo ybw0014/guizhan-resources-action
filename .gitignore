@@ -8,5 +8,4 @@ coverage/
 # Keep the packaged action entrypoint committed, but ignore other generated dist files by default.
 dist/*
 !dist/
-!dist/index.js
-!dist/licenses.txt
+!dist/index.cjs
