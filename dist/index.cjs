@@ -101259,7 +101259,9 @@ async function resolveArtifactFiles(artifactNames, artifactClient) {
     }
     const downloadPath = await (0, import_promises4.mkdtemp)(import_node_path2.default.join((0, import_node_os4.tmpdir)(), `guizhan-resources-${safeTempName(artifactName)}-`));
     await artifactClient.downloadArtifact(artifact.id, { path: downloadPath });
-    candidates.push(...(await collectFilesRecursively(downloadPath)).map((filePath) => ({ path: filePath, isLiteral: false })));
+    candidates.push(
+      ...(await collectFilesRecursively(downloadPath)).map((filePath) => ({ path: filePath, isLiteral: false }))
+    );
   }
   return resolveCandidateFiles(candidates);
 }
@@ -101704,7 +101706,9 @@ async function resolveUsableFiles(inputs, files) {
       throw new Error(`Unable to detect metadata for "${file.basename}".`);
     }
     if (inputs.failMode === "warn") {
-      warning(`Unable to detect metadata for "${file.basename}"; uploading without detected metadata from this file.`);
+      warning(
+        `Unable to detect metadata for "${file.basename}"; uploading without detected metadata from this file.`
+      );
       usableFiles.push({ ...file, metadata: metadata2 });
     }
   }
@@ -101869,9 +101873,12 @@ async function replayVerifyExistingVersion(inputs, versionData, contents) {
       signal: AbortSignal.timeout(attemptTimeoutMs)
     });
   } catch (error2) {
-    throw new Error(`Version already exists (5301), but fetching it for verification failed: ${getErrorMessage2(error2)}`, {
-      cause: error2
-    });
+    throw new Error(
+      `Version already exists (5301), but fetching it for verification failed: ${getErrorMessage2(error2)}`,
+      {
+        cause: error2
+      }
+    );
   }
   if (!response.ok) {
     throw new Error(
