@@ -3,7 +3,6 @@
 	"version": "0.1.2",
 	"private": true,
 	"type": "module",
-	"packageManager": "bun@1.4.0",
 	"scripts": {
 		"lint": "oxlint",
 		"lint:fix": "oxlint --fix",
@@ -14,14 +13,6 @@
 		"build": "tsc --noEmit",
 		"package": "tsup src/index.ts --format cjs --target node24 --out-dir dist --no-splitting",
 		"actionlint": "github-actionlint .github/workflows/*.yml"
-	},
-	"tsup": {
-		"noExternal": [
-			"@actions/artifact",
-			"@actions/core",
-			"@actions/glob"
-		],
-		"shims": true
 	},
 	"dependencies": {
 		"@actions/artifact": "6.2.1",
@@ -37,5 +28,14 @@
 		"tsup": "8.5.1",
 		"typescript": "7.0.2",
 		"vitest": "4.1.11"
+	},
+	"packageManager": "bun@1.4.0",
+	"tsup": {
+		"noExternal": [
+			"@actions/artifact",
+			"@actions/core",
+			"@actions/glob"
+		],
+		"shims": true
 	}
 }
