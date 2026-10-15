@@ -171,6 +171,37 @@ describe("buildProjectVersionData", () => {
     expect(data.files).toEqual(["Plugin-1.20.4-paper.jar"])
     expect(data.minecraft_versions).toEqual(["1.20.4"])
   })
+
+  it("validates filenames against the canonical cross-platform rules", async () => {
+    for (const basename of ["my plugin (v2).jar", "中文名.jar", "CONnect.jar", "COM10.jar"]) {
+      const { data } = await buildProjectVersionData(
+        createInputs({ autoDetectMinecraft: false, autoDetectPlatform: false }),
+        [{ basename, path: basename }]
+      )
+      expect(data.files).toEqual([basename])
+    }
+
+    for (const basename of [
+      "CON .jar",
+      "con .tar.jar",
+      "COM1 .jar",
+      "LPT¹ .jar",
+      "plugin.jar ",
+      "plugin.jar.",
+      ...Array.from("<>:/\\|?*", (char) => `plugin${char}.jar`),
+      `plugin${String.fromCharCode(1)}.jar`,
+      "plugin\0.jar",
+      "\ud800.jar",
+      `${"a".repeat(125)}.jar`,
+      `${"中".repeat(83)}aaa.jar`,
+    ]) {
+      await expect(
+        buildProjectVersionData(createInputs({ autoDetectMinecraft: false, autoDetectPlatform: false }), [
+          { basename, path: basename },
+        ])
+      ).rejects.toThrow(/Field "files" has an invalid (?:value|length)\./)
+    }
+  })
 })
 
 describe("metadata input dependencies", () => {

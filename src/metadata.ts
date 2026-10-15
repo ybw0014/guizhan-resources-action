@@ -1,5 +1,6 @@
 import * as core from "@actions/core"
 
+import { fileNameRegex, isWithinFilenameByteLimit, windowsDeviceNameRegex } from "./filename"
 import { detectFileMetadata, isSupportedPlatform, Platform } from "./detect"
 import { ActionInputs } from "./inputs"
 
@@ -24,7 +25,6 @@ const slugRegex = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i
 const urlSafeRegex = /^[a-zA-Z0-9!@$()`.+,_"-]*$/
 const visibleCharsRegex = /^[^\p{Cc}\p{Cf}]+$/u
 const minecraftVersionRegex = /^(?:1\.\d+(?:\.\d+)?|(?:2[6-9]|[3-9]\d)\.[1-9]\d*(?:\.\d+)?)$/
-const fileNameRegex = /^[a-zA-Z0-9](?:[a-zA-Z0-9\s_\-()]|\.(?!\.))*[a-zA-Z0-9)]\.[a-zA-Z0-9]+$/
 const maxPlatforms = 10
 
 type DetectedFileMetadata = Awaited<ReturnType<typeof detectFileMetadata>>
@@ -147,6 +147,12 @@ function validateProjectVersionData(data: CreateProjectVersionData) {
 
   for (const file of data.files) {
     validateString(file, "files", 1, 128, fileNameRegex)
+    if (windowsDeviceNameRegex.test(file)) {
+      throw new Error('Field "files" has an invalid value.')
+    }
+    if (!isWithinFilenameByteLimit(file)) {
+      throw new Error('Field "files" has an invalid length.')
+    }
   }
 }
 

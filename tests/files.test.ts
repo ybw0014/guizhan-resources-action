@@ -77,9 +77,40 @@ describe("collectFiles", () => {
   })
 
   it("rejects unsafe basenames", async () => {
-    const filePath = await createFile("dist/-plugin.jar")
+    const filePath = await createFile("dist/plugin")
 
     await expect(collectFiles(createInputs({ files: [filePath] }))).rejects.toThrow("unsafe basename")
+  })
+
+  it("accepts canonical cross-platform filenames", async () => {
+    for (const basename of ["my plugin (v2).jar", "中文名.jar", "CONnect.jar", "COM10.jar"]) {
+      const filePath = await createFile(`dist/${basename}`)
+      await expect(collectFiles(createInputs({ files: [filePath] }))).resolves.toEqual([{ path: filePath, basename }])
+    }
+  })
+
+  it("rejects reserved device names and unsafe filename characters", async () => {
+    for (const basename of [
+      "CON .jar",
+      "con .tar.jar",
+      "COM1 .jar",
+      "LPT¹ .jar",
+      ...Array.from('<>:"|', (char) => `plugin${char}.jar`),
+      `plugin${String.fromCharCode(1)}.jar`,
+    ]) {
+      const filePath = await createFile(`dist/${basename}`)
+      await expect(collectFiles(createInputs({ files: [filePath] }))).rejects.toThrow("unsafe basename")
+    }
+  })
+
+  it("rejects basenames over the UTF-16 or UTF-8 filename limits", async () => {
+    const tooManyUnitsPath = await createFile(`dist/${"a".repeat(125)}.jar`)
+    const unsupportedExtensionPath = await createFile("dist/plugin.tar")
+
+    await expect(collectFiles(createInputs({ files: [tooManyUnitsPath] }))).rejects.toThrow("unsafe basename")
+    await expect(collectFiles(createInputs({ files: [unsupportedExtensionPath] }))).rejects.toThrow(
+      "unsupported extension"
+    )
   })
 
   it("rejects duplicate basenames", async () => {

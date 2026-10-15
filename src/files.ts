@@ -4,6 +4,7 @@ import { mkdtemp, readdir, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
+import { fileNameRegex, isWithinFilenameByteLimit, windowsDeviceNameRegex } from "./filename"
 import { ActionInputs } from "./inputs"
 
 const allowedExtensions = new Set([".jar", ".zip"])
@@ -12,7 +13,6 @@ const allowedExtensions = new Set([".jar", ".zip"])
 // literal file paths are still validated strictly.
 const unrelatedExtensions = new Set([".sha1", ".sha256", ".md5", ".md", ".txt", ".json"])
 const globMagicRegex = /[*?[\]!{}]/
-const fileNameRegex = /^[a-zA-Z0-9](?:[a-zA-Z0-9\s_\-()]|\.(?!\.))*[a-zA-Z0-9)]\.[a-zA-Z0-9]+$/
 
 export type ResolvedUploadFile = {
   path: string
@@ -162,7 +162,12 @@ function finalizeFiles(files: ResolvedUploadFile[], primaryFile: string | undefi
 }
 
 function validateBasename(basename: string, absolutePath: string) {
-  if (!fileNameRegex.test(basename)) {
+  if (
+    basename.length > 128 ||
+    !fileNameRegex.test(basename) ||
+    windowsDeviceNameRegex.test(basename) ||
+    !isWithinFilenameByteLimit(basename)
+  ) {
     throw new Error(`Resolved file "${absolutePath}" has unsafe basename "${basename}".`)
   }
 

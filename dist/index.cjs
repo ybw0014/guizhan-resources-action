@@ -101214,10 +101214,19 @@ function create(patterns, options) {
 var import_promises4 = require("fs/promises");
 var import_node_os4 = require("os");
 var import_node_path2 = __toESM(require("path"), 1);
+
+// src/filename.ts
+init_cjs_shims();
+var fileNameRegex = /^(?=[\s\S]+\.[^.]+$)(?![\s\S]*[ .]$)[^\u0000-\u001f<>:"/\\|?*\p{Cs}]+$/u;
+var windowsDeviceNameRegex = /^(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])[ ]*(?:\.|$)/i;
+function isWithinFilenameByteLimit(value) {
+  return new TextEncoder().encode(value).byteLength <= 255;
+}
+
+// src/files.ts
 var allowedExtensions = /* @__PURE__ */ new Set([".jar", ".zip"]);
 var unrelatedExtensions = /* @__PURE__ */ new Set([".sha1", ".sha256", ".md5", ".md", ".txt", ".json"]);
 var globMagicRegex = /[*?[\]!{}]/;
-var fileNameRegex = /^[a-zA-Z0-9](?:[a-zA-Z0-9\s_\-()]|\.(?!\.))*[a-zA-Z0-9)]\.[a-zA-Z0-9]+$/;
 async function collectFiles(inputs, artifactClient = new DefaultArtifactClient()) {
   const localFiles = await resolveLocalFiles(inputs.files);
   const artifactFiles = await resolveArtifactFiles(inputs.artifactNames, artifactClient);
@@ -101322,7 +101331,7 @@ function finalizeFiles(files, primaryFile) {
   return [primary, ...sorted];
 }
 function validateBasename(basename5, absolutePath) {
-  if (!fileNameRegex.test(basename5)) {
+  if (basename5.length > 128 || !fileNameRegex.test(basename5) || windowsDeviceNameRegex.test(basename5) || !isWithinFilenameByteLimit(basename5)) {
     throw new Error(`Resolved file "${absolutePath}" has unsafe basename "${basename5}".`);
   }
   const extension = import_node_path2.default.extname(basename5).toLowerCase();
@@ -101662,7 +101671,6 @@ var slugRegex = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i;
 var urlSafeRegex2 = /^[a-zA-Z0-9!@$()`.+,_"-]*$/;
 var visibleCharsRegex = /^[^\p{Cc}\p{Cf}]+$/u;
 var minecraftVersionRegex2 = /^(?:1\.\d+(?:\.\d+)?|(?:2[6-9]|[3-9]\d)\.[1-9]\d*(?:\.\d+)?)$/;
-var fileNameRegex2 = /^[a-zA-Z0-9](?:[a-zA-Z0-9\s_\-()]|\.(?!\.))*[a-zA-Z0-9)]\.[a-zA-Z0-9]+$/;
 var maxPlatforms = 10;
 async function buildProjectVersionData(inputs, files) {
   const usableFiles = await resolveUsableFiles(inputs, files);
@@ -101754,7 +101762,13 @@ function validateProjectVersionData(data) {
     throw new Error('Field "files" must include at least one file.');
   }
   for (const file of data.files) {
-    validateString(file, "files", 1, 128, fileNameRegex2);
+    validateString(file, "files", 1, 128, fileNameRegex);
+    if (windowsDeviceNameRegex.test(file)) {
+      throw new Error('Field "files" has an invalid value.');
+    }
+    if (!isWithinFilenameByteLimit(file)) {
+      throw new Error('Field "files" has an invalid length.');
+    }
   }
 }
 function validatePlatforms(platforms) {
